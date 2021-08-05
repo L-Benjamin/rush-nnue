@@ -1,9 +1,9 @@
 # The directory containing our training data.
-data
+data/*
 !data/.keep
 
 # The directory containing our neural networks.
-nets
+nets/*
 !nets/.keep
 
 # Temporary files.
