@@ -33,13 +33,13 @@ pipenv shell
 
 3. Execute the script `scripts/make-dataset.sh` like so:
 ```bash
-scripts/make-dataset.sh data/lichess_db_standard_rated_2021-07.pgn.bz2 data/training_data.txt
+make-dataset.sh in.pgn.bz2 out.txt
 ```
 You can replace the names of the in and out files as you wish.
 
 4. Shuffle the lines of the dataset with a tool like `shuf`:
 ```bash
-shuf data/training_data.txt > data/training_data.txt
+shuf out.txt -o out.txt
 ```
 
 Your dataset is now ready for use in training!
