@@ -4,6 +4,14 @@ from multiprocessing import Process, Queue
 
 import chess, chess.pgn
 
+"""
+Reads PGN data from stdin, extract the positions that are evaluated and 
+outputs them to stdout, one by line, in the following format:
+FEN;EVAL
+where FEN is the complete FEN string of the position and EVAL is a signed integer in centipawns.
+Ignores position that are evaluated with a mate score.
+"""
+
 # Number of parser threads
 NUM_WORKERS = 6
 
@@ -25,13 +33,15 @@ class FastGameBuilder(chess.pgn.GameBuilder):
     def visit_move(self, board: chess.Board, move: chess.Move):
         self.variation_stack[0] = self.variation_stack[0].add_variation(move=move)
 
+    def handle_error(self, error):
+        raise Skip()
+
     def begin_headers(self): pass
     def visit_header(self, tagname, tagvalue): pass
     def visit_nag(self, nag): pass
     def begin_variation(self): pass
     def end_variation(self): pass
     def visit_result(self, result): pass
-    def handle_error(self, error): pass
 
 # Inherits BaseException because Exceptions are swallowed by python-chess.
 class Skip(BaseException):

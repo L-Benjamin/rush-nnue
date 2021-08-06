@@ -24,7 +24,7 @@ You can then follow the below steps to prepare the dataset and start training yo
 ### Preparing the dataset
 
 Follow the below steps to prepare a dataset for training your very own NNUE:
-1. Fetch a PGN archive on [lichess.org open database](https://database.lichess.org/). DO NOT extract it! In the following example, I am using the July 2021 archive.
+1. Fetch a PGN archive on [lichess.org open database](https://database.lichess.org/). DO NOT EXTRACT IT! In the following example, I am using the July 2021 archive. I can't guarantee anything if you are using data from another source.
 
 2. (If using pipenv) Enter the virtual python environnement with:
 ```bash
@@ -33,9 +33,9 @@ pipenv shell
 
 3. Execute the script `scripts/make-dataset.sh` like so:
 ```bash
-make-dataset.sh in.pgn.bz2 out.txt
+make-dataset.sh IN.pgn.bz2 OUT.txt
 ```
-You can replace the names of the in and out files as you wish.
+You can replace the names of the IN and OUT files as you wish. The average space needed is about 63.5975 bytes/position.
 
 4. Shuffle the lines of the dataset with a tool like `shuf`:
 ```bash
