@@ -8,34 +8,36 @@ Many thanks to the [Lichess](https://lichess.org/) community for providing free 
 
 ## Usage
 
-Install the dependencies listed in the Pipfile with the utility of your choice. I recommend [pipenv](https://pipenv.pypa.io/en/latest/).
+I assume you are running linux in the rest of the instructions, but running the scripts on another OS might not involve too much work.
 
-If you are using pipenv, simply do:
+### Dependencies
+
+- You will need the command line tool `bzip2` to extract the pgn archive.
+
+- Python dependencies are listed in the Pipfile. I recommend using [pipenv](https://pipenv.pypa.io/en/latest/) to install them. With pipenv installed, simply do:
 ```bash
 pipenv install
 ```
 
-Once finished, do the following command to enter the virtual environnement:
+You can then follow the below steps to prepare the dataset and start training your nets.
+
+### Preparing the dataset
+
+Follow the below steps to prepare a dataset for training your very own NNUE:
+1. Fetch a PGN archive on [lichess.org open database](https://database.lichess.org/). DO NOT extract it! In the following example, I am using the July 2021 archive.
+
+2. (If using pipenv) Enter the virtual python environnement with:
 ```bash
 pipenv shell
 ```
 
-You can then follow the below steps to prepare the dataset and start training your nets.
-
-### Dataset
-
-Follow the below steps to prepare a dataset for training your very own NNUE:
-1. Fetch a PGN archive on [lichess.org open database](https://database.lichess.org/). In the following example, I am using the July 2021 archive.
-2. Execute the `src/make-dataset.py` script with a PGN text redirected to stdin and the output redirected to stdout (you will need to extract the archive):
+3. Execute the script `scripts/make-dataset.sh` like so:
 ```bash
-python src/make-dataset.py < data/lichess_db_standard_rated_2021-07.pgn > data/training_data.txt
+scripts/make-dataset.sh data/lichess_db_standard_rated_2021-07.pgn.bz2 data/training_data.txt
 ```
-If you do not wish to extract the entire archive to save disk space, simply pipe the output of `bzip2` to the script, like so:
-```bash
-bzip2 -dc data/lichess_db_standard_rated_2021-07.pgn.bz2 | python src/make-dataset.py > data/training_data.txt
-```
-I recommend using this second method.
-3. Shuffle the lines of the dataset with a tool like `shuf`:
+You can replace the names of the in and out files as you wish.
+
+4. Shuffle the lines of the dataset with a tool like `shuf`:
 ```bash
 shuf data/training_data.txt > data/training_data.txt
 ```
@@ -48,5 +50,6 @@ TODO
 
 # TODO
 
++ Improve performance with a custom pgn visitor
 + Script to train a nnue.
 + Actually train a nnue.
