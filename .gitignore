@@ -1,3 +1,5 @@
+Pipfile.lock
+
 # The directory containing our training data.
 data/*
 !data/.keep
