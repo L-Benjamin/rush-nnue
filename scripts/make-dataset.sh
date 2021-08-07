@@ -1,5 +1,8 @@
 #!/usr/bin/sh
 
+# Kill all children on exits
+trap 'jobs -p | xargs kill' EXIT
+
 # Prints the usage of the script.
 script_usage() {
     cat << EOF

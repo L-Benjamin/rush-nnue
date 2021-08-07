@@ -1,6 +1,9 @@
 from io import StringIO
+from os import kill
+from queue import Empty, Full
+from signal import SIGTERM
 from sys import stdin, stderr
-from multiprocessing import Process, Queue
+from multiprocessing import active_children, Process, Queue
 
 import chess, chess.pgn
 
@@ -64,11 +67,13 @@ def worker_main(in_queue, res_queue):
     while True:
         try:
             # Parse the next chunk.
-            chunk = in_queue.get()
+            chunk = in_queue.get(timeout=1)
             game = chess.pgn.read_game(chunk, Visitor=FastGameBuilder)
             chunk.close()
         except Skip:
             continue
+        except Empty:
+            return
 
         if game is None:
             break
@@ -92,7 +97,10 @@ def worker_main(in_queue, res_queue):
             # Format it like: "<fen>;<eval>\n".
             batch.append(f"{board.fen().split(' ')[0]};{white_eval.score()}")
 
-        res_queue.put(batch)
+        try:
+            res_queue.put(batch, timeout=1)
+        except Full:
+            return
 
 def main():
     # For threading purposes.
@@ -102,7 +110,6 @@ def main():
     # The process that prints results.
     Process(
         target=print_results,
-        daemon=True,
         kwargs={
             "res_queue": res_queue,
         },
@@ -112,7 +119,6 @@ def main():
     for _ in range(NUM_WORKERS):
         Process(
             target=worker_main,
-            daemon=True,
             kwargs={
                 "in_queue": in_queue,
                 "res_queue": res_queue,
@@ -134,4 +140,7 @@ def main():
         lines.append(line)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except:
+        pass
