@@ -48,25 +48,13 @@ class Skip(BaseException):
     pass
 
 def print_results(res_queue):
-    # Keeps track of the number of position extracted.
-    pos_count = 0
-    update = 100
-
     while True:
-        # Get the next results.
-        batch = res_queue.get()
-
-        # Outputs the results and update the stats.
-        pos_count += len(batch)
-        for res in batch:
-            print(res)
-
-        # Print the advancement of the task every 100 batches.
-        if update == 100:
-            update = 0
-            print(f"Position count: {pos_count // 1000}K", end="\r", file=stderr)
-        else:
-            update += 1
+        # Outputs the results.
+        for res in res_queue.get():
+            try:
+                print(res)
+            except BrokenPipeError:
+                return
 
 # Reads PGN games from stdin and converts them into evaluated FEN positions.
 def worker_main(in_queue, res_queue):
@@ -114,6 +102,7 @@ def main():
     # The process that prints results.
     Process(
         target=print_results,
+        daemon=True,
         kwargs={
             "res_queue": res_queue,
         },
