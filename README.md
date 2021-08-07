@@ -43,6 +43,11 @@ Your dataset is now ready for use in training!
 
 TODO
 
+## Resources
+
+- [Chess Programming Wiki - NNUE](https://www.chessprogramming.org/NNUE)
+- [David Carteau - Cerebrum](https://github.com/david-carteau/cerebrum)
+
 # TODO
 
 + Script to train a nnue.

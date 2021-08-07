@@ -140,7 +140,4 @@ def main():
         lines.append(line)
 
 if __name__ == "__main__":
-    try:
-        main()
-    except:
-        pass
+    main()
