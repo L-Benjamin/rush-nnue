@@ -48,13 +48,13 @@ class Skip(BaseException):
     pass
 
 def print_results(res_queue):
-    while True:
+    try:
         # Outputs the results.
-        for res in res_queue.get():
-            try:
+        while True:
+            for res in res_queue.get():
                 print(res)
-            except BrokenPipeError:
-                return
+    except BrokenPipeError:
+        pass
 
 # Reads PGN games from stdin and converts them into evaluated FEN positions.
 def worker_main(in_queue, res_queue):

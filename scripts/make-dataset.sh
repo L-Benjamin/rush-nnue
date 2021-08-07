@@ -1,6 +1,6 @@
 #!/usr/bin/sh
 
-# Prints the usage of the script
+# Prints the usage of the script.
 script_usage() {
     cat << EOF
 Usage: make-dataset [OPTION]... [FILE]
@@ -75,9 +75,9 @@ fi
 INPUT_FILE=${POSITIONALS[0]}
 PAD=${#BATCH_COUNT}
 
-# Keeps track of progress done so far
+# Keeps track of progress done so far.
 count_batches() {
-    echo -en "Position count: $(( $(($FILE+1)) * $BATCH_SIZE / 1000))K\r"
+    echo -en "Position count: $((($((10#$FILE)) + 1) * $BATCH_SIZE / 1000))K\r"
 
     if [[ $FILE == $BATCH_COUNT ]]; then
         echo
@@ -94,4 +94,8 @@ export -f count_batches
 echo -en "Position count: 0K\r"
 
 # ===== Computing
-bzip2 -dckqs $INPUT_FILE | python src/pgn-reader.py | split -d -a $PAD -l $BATCH_SIZE --filter "shuf | bzip2 -zqc > $OUTPUT_DIR/\$FILE.text.bz2; count_batches" - '' 2> /dev/null
+# Pipes the decompression of the databse into the python script that reads the pgn and extracts 
+# the positions, then split them in batches and filters them through shuf to shuffle them,
+# then compress them before writing them to disk. Also counts the number of batches created
+# and stops when the limit was reached.
+bzip2 -dckqs $INPUT_FILE | python src/pgn-reader.py | split -d -a $PAD -l $BATCH_SIZE --filter "shuf | bzip2 -zcqs > $OUTPUT_DIR/\$FILE.text.bz2; count_batches" - '' 2> /dev/null
