@@ -90,7 +90,7 @@ def worker_main(in_queue, res_queue):
                 continue
 
             # Format it like: "<fen>;<eval>\n".
-            batch.append(f"{board.fen()};{white_eval.score()}")
+            batch.append(f"{board.fen().split(' ')[0]};{white_eval.score()}")
 
         res_queue.put(batch)
 

@@ -35,7 +35,7 @@ pipenv shell
 ```bash
 make-dataset.sh MYARCHIVE.pgn.bz2
 ```
-You can specifiy the size and count of batches, as well as the output directory, do `make-dataset.sh --help` to get the proper usage of the script.
+You can specifiy the size and count of batches, as well as the output directory, do `make-dataset.sh --help` to get the proper usage of the script. The average disk usage of batches is around 11.89 bytes/position.
 
 Your dataset is now ready for use in training!
 
