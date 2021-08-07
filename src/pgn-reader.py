@@ -50,7 +50,6 @@ class Skip(BaseException):
 def print_results(res_queue):
     # Keeps track of the number of position extracted.
     pos_count = 0
-    bytes_count = 0
     update = 100
 
     while True:
@@ -61,12 +60,11 @@ def print_results(res_queue):
         pos_count += len(batch)
         for res in batch:
             print(res)
-            bytes_count += len(res)+1
 
         # Print the advancement of the task every 100 batches.
         if update == 100:
             update = 0
-            print(f"Position count: {pos_count // 1000}K ({bytes_count / 1000000:.2f}MB)", end="\r", file=stderr)
+            print(f"Position count: {pos_count // 1000}K", end="\r", file=stderr)
         else:
             update += 1
 
