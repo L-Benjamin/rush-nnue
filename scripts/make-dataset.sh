@@ -1,7 +1,7 @@
 #!/usr/bin/sh
 
-# Kill all children on exits
-trap 'jobs -p | xargs kill' EXIT
+# Kill all children on exits.
+trap 'jobs -p | xargs kill 2> /dev/null' EXIT
 
 # Prints the usage of the script.
 script_usage() {
@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -c | --batch-count)
-            BATCH_COUNT=$(($1-1))
+            BATCH_COUNT=$1
             shift
             ;;
         -s | --batch-size)
@@ -78,6 +78,10 @@ fi
 INPUT_FILE=${POSITIONALS[0]}
 PAD=${#BATCH_COUNT}
 
+export BATCH_COUNT=$(($BATCH_COUNT-1))
+export BATCH_SIZE
+export PID=$$
+
 # Keeps track of progress done so far.
 count_batches() {
     echo -en "Position count: $((($((10#$FILE)) + 1) * $BATCH_SIZE / 1000))K\r"
@@ -89,9 +93,6 @@ count_batches() {
     fi
 }
 
-export BATCH_COUNT
-export BATCH_SIZE
-export PID=$$
 export -f count_batches
 
 echo -en "Position count: 0K\r"
@@ -101,4 +102,4 @@ echo -en "Position count: 0K\r"
 # the positions, then split them in batches and filters them through shuf to shuffle them,
 # then compress them before writing them to disk. Also counts the number of batches created
 # and stops when the limit was reached.
-bzip2 -dckqs $INPUT_FILE | python src/pgn-reader.py | split -d -a $PAD -l $BATCH_SIZE --filter "shuf | bzip2 -zcqs > $OUTPUT_DIR/\$FILE.text.bz2; count_batches" - '' 2> /dev/null
+bzip2 -dckqs $INPUT_FILE | python src/pgn-reader.py | split -d -a $PAD -l $BATCH_SIZE --filter "shuf | bzip2 -zcqs > $OUTPUT_DIR/\$FILE.txt.bz2; count_batches" - '' 2> /dev/null
