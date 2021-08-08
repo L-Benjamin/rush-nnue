@@ -153,5 +153,4 @@ def main():
     print(model)
 
 if __name__ == "__main__":
-    #main()
-    print(load_batch("data/batches/0.txt.bz2"))
+    main()
