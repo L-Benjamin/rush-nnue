@@ -30,7 +30,8 @@ def parse_sample(line):
     """
     
     WHITE_INDEXES = {"P": 0, "N": 128, "B": 256, "R": 384, "Q": 512}
-    BLACK_INDEXES = {"p": 0, "n": 128, "b": 256, "r": 384, "q": 512}
+    BLACK_INDEXES = {"p": 64, "n": 192, "b": 320, "r": 448, "q": 576}
+    OTHERS = {"1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "k": 1}
 
     fen, centipawns = line.split(";")
 
@@ -42,30 +43,27 @@ def parse_sample(line):
         for char in rank:
             if (index := WHITE_INDEXES.get(char)) is not None:
                 # If it's a white piece.
-                indexes_w.append((index, sq))                
+                indexes_w.append(index + sq)                
                 sq += 1
             elif (index := BLACK_INDEXES.get(char)) is not None:
                 # If it's a black piece.
-                indexes_b.append((index, sq))
+                indexes_b.append(index + sq)
                 sq += 1
             elif char == "K":
                 # It's the white king.
                 king_sq = 640 * sq
                 sq += 1
-            elif char == "k":
-                # It's the black king.
-                sq += 1
             else:
-                # If it's a number.
-                sq += ord(char) - ord("0")
+                # It's the black king or a number.
+                sq += OTHERS[char]
         sq -= 16
 
     ix1 = []
     ix2 = []
-    for piece_index, sq in indexes_w:
-        ix1.append(king_sq + piece_index + sq)
-    for piece_index, sq in indexes_b:
-        ix2.append(king_sq + piece_index + sq + 64)
+    for index in indexes_w:
+        ix1.append(king_sq + index)
+    for index in indexes_b:
+        ix2.append(king_sq + index)
 
     y = int(centipawns) / 100
 
@@ -155,4 +153,5 @@ def main():
     print(model)
 
 if __name__ == "__main__":
-    main()
+    #main()
+    print(load_batch("data/batches/0.txt.bz2"))
