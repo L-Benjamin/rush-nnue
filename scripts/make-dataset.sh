@@ -75,10 +75,11 @@ if ! [[ -f ${POSITIONALS[0]} ]]; then
 fi
 
 # ===== Preparation and exports
+export BATCH_COUNT=$(($BATCH_COUNT-1))
+
 INPUT_FILE=${POSITIONALS[0]}
 PAD=${#BATCH_COUNT}
 
-export BATCH_COUNT=$(($BATCH_COUNT-1))
 export BATCH_SIZE
 export PID=$$
 

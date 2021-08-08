@@ -9,18 +9,25 @@ import chess, chess.pgn
 
 """
 Reads PGN data from stdin, extract the positions that are evaluated and 
-outputs them to stdout, one by line, in the following format:
-FEN;EVAL
-where FEN is the complete FEN string of the position and EVAL is a signed integer in centipawns.
-Ignores position that are evaluated with a mate score.
+outputs them to stdout, one by line, in the following format 'FEN;EVAL'.
+
+Where FEN is the FEN representation of the board and EVAL is a signed 
+integer giving the evaluation of the board from white's point of viewn,
+in centipawns.
+
+Ignores positions that are evaluated with a mate score.
+
+Skips games that are not evaluated.
 """
 
 # Number of parser threads
 NUM_WORKERS = 6
 
-# A leaner PGN visitor that only reads moves and comments, and skips everything 
-# if it encounters an unevaluated game.
 class FastGameBuilder(chess.pgn.GameBuilder):
+    """
+    A leaner PGN visitor that only reads moves and comments, and skips everything 
+    if it encounters an unevaluated game.
+    """
 
     def begin_game(self):
         self.game = self.Game()
@@ -46,35 +53,51 @@ class FastGameBuilder(chess.pgn.GameBuilder):
     def end_variation(self): pass
     def visit_result(self, result): pass
 
-# Inherits BaseException because Exceptions are swallowed by python-chess.
 class Skip(BaseException):
+    """
+    Used to signal that we want to skip this game.
+    Inherits BaseException because normal Exception classes are swallowed by python-chess.
+    """
+
     pass
 
 def print_results(res_queue):
+    """
+    Prints resulst to stdout until the pipe is broken or nothing 
+    came for one second straight.
+    """
+
     try:
         # Outputs the results.
         while True:
-            for res in res_queue.get():
+            for res in res_queue.get(timeout=1):
                 print(res)
-    except BrokenPipeError:
-        pass
+    except (BrokenPipeError, Empty):
+        return
 
 # Reads PGN games from stdin and converts them into evaluated FEN positions.
 def worker_main(in_queue, res_queue):
-    # The chess board.
+    """
+    Parses games sent from in_queue and outputs evaluated FEN positions
+    to res_queue.
+    """
+
     board = chess.Board()
 
     while True:
         try:
-            # Parse the next chunk.
             chunk = in_queue.get(timeout=1)
-            game = chess.pgn.read_game(chunk, Visitor=FastGameBuilder)
-            chunk.close()
-        except Skip:
-            continue
         except Empty:
             return
+        
+        try:
+            game = chess.pgn.read_game(chunk, Visitor=FastGameBuilder)
+        except Skip:
+            continue
+        finally:
+            chunk.close()
 
+        # End reached.
         if game is None:
             break
 
@@ -87,27 +110,34 @@ def worker_main(in_queue, res_queue):
             # Do the move
             board.push(game.move)
 
+            # Position is not evaluated
             if not (evaluation := game.eval()):
                 continue
-
+            # Get white's point of view.
             white_eval = evaluation.white()
+            # Evaluation is a mate score.
             if white_eval.is_mate():
                 continue
 
-            # Format it like: "<fen>;<eval>\n".
+            # Format it like: FEN;EVAL".
             batch.append(f"{board.fen().split(' ')[0]};{white_eval.score()}")
 
+        # Try to push the next results to the queue but quits if no
+        # one is there to consume.
         try:
             res_queue.put(batch, timeout=1)
         except Full:
             return
 
 def main():
-    # For threading purposes.
+    """
+    Creates the different processes of the program, then start reading from
+    stdin and send the games to the parser processes, in pure text.
+    """
+
     in_queue = Queue(maxsize=8)
     res_queue = Queue(maxsize=8)
 
-    # The process that prints results.
     Process(
         target=print_results,
         kwargs={
@@ -115,7 +145,6 @@ def main():
         },
     ).start()
 
-    # The processes that parse PGN games.
     for _ in range(NUM_WORKERS):
         Process(
             target=worker_main,
@@ -125,19 +154,24 @@ def main():
             },
         ).start()
 
-    # Reads lines from stdin until there is nothing left.
-    lines = []
-    after_headers = False
+    # Reads lines from stdin until there is nothing left, 
+    # or the pipe is broken, or no one is consuming games
+    # anymore.
+    try:
+        lines = []
+        after_headers = False
 
-    for line in stdin:
-        if line.isspace():
-            if after_headers:
-                in_queue.put(StringIO("".join(lines)))
-                lines = []
-                after_headers = False
-            else:
-                after_headers = True
-        lines.append(line)
+        for line in stdin:
+            if line.isspace():
+                if after_headers:
+                    in_queue.put(StringIO("".join(lines)), timeout=1)
+                    lines = []
+                    after_headers = False
+                else:
+                    after_headers = True
+            lines.append(line)
+    except (BrokenPipeError, Full):
+        return
 
 if __name__ == "__main__":
     main()
