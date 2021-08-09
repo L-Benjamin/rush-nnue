@@ -1,11 +1,10 @@
 from io import StringIO
-from os import kill
+from multiprocessing import cpu_count, Process, Queue
 from queue import Empty, Full
-from signal import SIGTERM
-from sys import stdin, stderr
-from multiprocessing import active_children, Process, Queue
+from sys import stdin
 
-import chess, chess.pgn
+from chess import Board
+from chess.pgn import GameBuilder, read_game
 
 """
 Reads PGN data from stdin, extract the positions that are evaluated and 
@@ -26,7 +25,7 @@ NUM_WORKERS = 6
 # The numbers of moves to skip from the start of the game.
 SKIP_NFIRST = 4
 
-class FastGameBuilder(chess.pgn.GameBuilder):
+class FastGameBuilder(GameBuilder):
     """
     A leaner PGN visitor that only reads moves and comments, and skips everything 
     if it encounters an unevaluated game.
@@ -43,7 +42,7 @@ class FastGameBuilder(chess.pgn.GameBuilder):
             raise Skip()
         self.first = False
 
-    def visit_move(self, board: chess.Board, move: chess.Move):
+    def visit_move(self, board, move):
         self.variation_stack[0] = self.variation_stack[0].add_variation(move=move)
 
     def handle_error(self, error):
@@ -86,7 +85,7 @@ def worker_main(in_queue, res_queue):
     Skips the first SKIP_NFIRST moves.
     """
 
-    board = chess.Board()
+    board = Board()
 
     while True:
         try:
@@ -95,7 +94,7 @@ def worker_main(in_queue, res_queue):
             return
         
         try:
-            game = chess.pgn.read_game(chunk, Visitor=FastGameBuilder)
+            game = read_game(chunk, Visitor=FastGameBuilder)
         except Skip:
             continue
         finally:
@@ -155,7 +154,7 @@ def main():
         },
     ).start()
 
-    for _ in range(NUM_WORKERS):
+    for _ in range(max(cpu_count() - 2, 1)):
         Process(
             target=worker_main,
             kwargs={
