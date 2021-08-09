@@ -20,8 +20,11 @@ Ignores positions that are evaluated with a mate score.
 Skips games that are not evaluated.
 """
 
-# Number of parser threads
+# Number of parser threads.
 NUM_WORKERS = 6
+
+# The numbers of moves to skip from the start of the game.
+SKIP_NFIRST = 4
 
 class FastGameBuilder(chess.pgn.GameBuilder):
     """
@@ -75,11 +78,12 @@ def print_results(res_queue):
     except (BrokenPipeError, Empty):
         return
 
-# Reads PGN games from stdin and converts them into evaluated FEN positions.
 def worker_main(in_queue, res_queue):
     """
     Parses games sent from in_queue and outputs evaluated FEN positions
     to res_queue.
+
+    Skips the first SKIP_NFIRST moves.
     """
 
     board = chess.Board()
@@ -104,11 +108,17 @@ def worker_main(in_queue, res_queue):
         # Reset the board to it's starting position.
         board.reset()
         batch = []
+        n = 0
 
         # For each position in the game.
         while game := game.next():
+            n += 1
+
             # Do the move
             board.push(game.move)
+
+            if n < SKIP_NFIRST:
+                continue
 
             # Position is not evaluated
             if not (evaluation := game.eval()):
