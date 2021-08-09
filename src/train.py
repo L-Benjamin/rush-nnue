@@ -30,8 +30,8 @@ def parse_sample(line):
     """
     
     WHITE_INDEXES = {"P": 0, "N": 128, "B": 256, "R": 384, "Q": 512}
-    BLACK_INDEXES = {"p": 64, "n": 192, "b": 320, "r": 448, "q": 576}
-    OTHERS = {"1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "k": 1}
+    BLACK_INDEXES = {"p": 0, "n": 128, "b": 256, "r": 384, "q": 512}
+    KINGS = {"K", "k"}
 
     fen, centipawns = line.split(";")
 
@@ -43,38 +43,45 @@ def parse_sample(line):
         for char in rank:
             if (index := WHITE_INDEXES.get(char)) is not None:
                 # If it's a white piece.
-                indexes_w.append(index + sq)                
+                indexes_w.append((index, sq))                
                 sq += 1
             elif (index := BLACK_INDEXES.get(char)) is not None:
                 # If it's a black piece.
-                indexes_b.append(index + sq)
+                indexes_b.append((index, sq))
                 sq += 1
-            elif char == "K":
-                # It's the white king.
-                king_sq = 640 * sq
+            elif char in KINGS:
+                # It's a king.
+                if char == "K":
+                    king_w = 640 * sq
+                else:
+                    king_b = 640 * (sq ^ 56)
                 sq += 1
             else:
-                # It's the black king or a number.
-                sq += OTHERS[char]
+                # It's a number.
+                sq += ord(char) - ord("0")
         sq -= 16
 
-    ix1 = []
-    ix2 = []
-    for index in indexes_w:
-        ix1.append(king_sq + index)
-    for index in indexes_b:
-        ix2.append(king_sq + index)
+    sample_w = []
+    sample_b = []
 
-    y = int(centipawns) / 100
+    for index, sq in indexes_w:
+        sample_w.append(king_w + index + sq)
+        sample_b.append(king_b + index + 64 + (sq ^ 56))
+    for index, sq in indexes_b:
+        sample_w.append(king_w + index + 64 + sq)
+        sample_b.append(king_b + index + (sq ^ 56))
 
-    return ix1, ix2, y
+    eval_w = int(centipawns) / 100
+    eval_b = -eval_w
+
+    return sample_w, sample_b, eval_w, eval_b
 
 def load_batch(file_name):
     """
     Loads a batch file from it's name, decompress it and parses it. 
 
     Returns three tensors, two containing the inputs of the net, for both
-    colors, and one containing labels.
+    colors, and one containing the labels.
     """
 
     with bz2.open(file_name, "rt") as f:
@@ -86,23 +93,32 @@ def load_batch(file_name):
     ix2, iy2 = [], []
 
     # The label's vector.
-    Y = tch.empty(len(lines), dtype=tch.float)
+    Y = tch.empty(len(lines) * 2, dtype=tch.float)
 
     # Parse each line of the batch file
-    for i, line in enumerate(lines):
-        sample_ix1, sample_ix2, y = parse_sample(line)
+    i = 0
+    for line in lines:
+        sample_w, sample_b, eval_w, eval_b = parse_sample(line)
 
-        ix1.extend(sample_ix1)
-        iy1.extend([i] * len(sample_ix1))
+        # From white's point of view.
+        ix1.extend(sample_w)
+        iy1.extend([i] * len(sample_w))
+        ix2.extend(sample_b)
+        iy2.extend([i] * len(sample_b))
+        Y[i] = eval_w
+        i += 1
 
-        ix2.extend(sample_ix2)
-        iy2.extend([i] * len(sample_ix2))
-
-        Y[i] = y
+        # From black's point of view.
+        ix1.extend(sample_b)
+        iy1.extend([i] * len(sample_b))
+        ix2.extend(sample_w)
+        iy2.extend([i] * len(sample_w))
+        Y[i] = eval_b
+        i += 1
 
     # The inputs sparse tensors.
-    X1 = tch.sparse_coo_tensor([iy1, ix1], tch.ones(len(ix1)), size=(len(lines), HEIGHT), dtype=tch.float)
-    X2 = tch.sparse_coo_tensor([iy2, ix2], tch.ones(len(ix2)), size=(len(lines), HEIGHT), dtype=tch.float)
+    X1 = tch.sparse_coo_tensor([iy1, ix1], tch.ones(len(iy1)), size=(len(lines) * 2, HEIGHT), dtype=tch.float)
+    X2 = tch.sparse_coo_tensor([iy2, ix2], tch.ones(len(iy2)), size=(len(lines) * 2, HEIGHT), dtype=tch.float)
 
     return (X1, X2), Y
 
