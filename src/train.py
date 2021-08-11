@@ -1,18 +1,29 @@
+import argparse
 import bz2
+import json
+import os
+import random
+import time
 
 import torch as tch
 
 # ===== Parameters
 
-# 64 piece's squares x 64 king's square x 5 non-king piece type x 2 colors.
+# 64 piece's squares x 64 king's square x 5 non-king piece types x 2 colors.
 HEIGHT = 40960
 
-# Set this to 256 to get Stockfish's old model.
+# Set this to 256 to get Stockfish's old HalfKP model. We want something leaner.
 SIZE = 128
 
 # The ReLU parameters of the model.
 RELU_MIN = 0
 RELU_MAX = 1
+
+# The loss function used.
+LOSS_FN = tch.nn.MSELoss
+
+# The optimizer used for gradient descent.
+OPTIMIZER = tch.optim.Adagrad
 
 # ===== Parsing
 
@@ -78,7 +89,7 @@ def parse_sample(line):
 
 def load_batch(file_name):
     """
-    Loads a batch file from it's name, decompress it and parses it. 
+    Loads a batch file from it's name, decompresses it and parses it. 
 
     Returns three tensors, two containing the inputs of the net, for both
     colors, and one containing the labels.
@@ -86,6 +97,8 @@ def load_batch(file_name):
 
     with bz2.open(file_name, "rt") as f:
         lines = f.readlines()
+    
+    random.shuffle(lines)
 
     # The x and y indices of the places where we need
     # a "1" in the input matrixes.
@@ -93,7 +106,7 @@ def load_batch(file_name):
     ix2, iy2 = [], []
 
     # The label's vector.
-    Y = tch.empty(len(lines) * 2, dtype=tch.float)
+    y = tch.empty((len(lines) * 2, 1), dtype=tch.float)
 
     # Parse each line of the batch file
     i = 0
@@ -105,7 +118,7 @@ def load_batch(file_name):
         iy1.extend([i] * len(sample_w))
         ix2.extend(sample_b)
         iy2.extend([i] * len(sample_b))
-        Y[i] = eval_w
+        y[i] = eval_w
         i += 1
 
         # From black's point of view.
@@ -113,16 +126,45 @@ def load_batch(file_name):
         iy1.extend([i] * len(sample_b))
         ix2.extend(sample_w)
         iy2.extend([i] * len(sample_w))
-        Y[i] = eval_b
+        y[i] = eval_b
         i += 1
 
     # The inputs sparse tensors.
     X1 = tch.sparse_coo_tensor([iy1, ix1], tch.ones(len(iy1)), size=(len(lines) * 2, HEIGHT), dtype=tch.float)
     X2 = tch.sparse_coo_tensor([iy2, ix2], tch.ones(len(iy2)), size=(len(lines) * 2, HEIGHT), dtype=tch.float)
 
-    return (X1, X2), Y
+    return (X1, X2), y
 
-# ===== Model
+# ===== Files
+
+def verify_dir(dirname):
+    """
+    Exits the program with an error code if the argument is not 
+    a path to a directory.
+    """
+
+    if not os.path.isdir(dirname):
+        print(f"{dirname} is not a directory.")
+        exit(1)
+
+def load_net(device, filename):
+    """
+    Loads or initializes a network from a given file name.
+    Also chooses the best device to train the network on.
+    Returns the device and the initialized model.
+    """
+    model = Net().to(device)
+
+    if filename is not None:
+        try:
+            model.load_state_dict(tch.load(filename))
+        except FileNotFoundError:
+            print(f"Network file not found: {filename}")
+            exit(1)
+
+    return model
+
+# ===== Network model
 
 class Net(tch.nn.Module):
     """
@@ -155,18 +197,149 @@ class Net(tch.nn.Module):
         
         return self.l4(x)
 
-# ===== main()
+# ===== train, test and main functions
+
+def train(args):
+    """
+    Trains the network for the specified number of epochs and on the
+    given dataset.
+    """
+
+    verify_dir(args.outdir)
+    verify_dir(args.data)
+
+    data_files = os.listdir(args.data)
+
+    device = "cuda" if tch.cuda.is_available() else "cpu"
+    model = load_net(device, args.netfile)
+
+    print(f"Using device: {device}")
+
+    optimizer = OPTIMIZER(model.parameters(), lr=args.learning_rate)
+    loss_fn = LOSS_FN()
+
+    for i in range(args.epochs):
+        print(f"==== Started epoch n°{i + 1} ====")
+
+        avg_loss = 0
+
+        for data_file in data_files:
+            X, y = load_batch(os.path.join(args.data, data_file))
+
+            yhat = model(X)
+            loss = loss_fn(yhat, y)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            loss = loss.item()
+            avg_loss += loss
+            print(f"loss: {loss:.3f}")
+
+        avg_loss /= len(data_files)
+
+        print(f"\naverage loss in epoch: {avg_loss:.3f}\n===== Ended epoch n°{i + 1} =====\n")
+        tch.save(model.state_dict(), os.path.join(args.outdir, f"nnue-{hex(random.randint(0, 0xffffffff))}.pt"))
+
+    print("FINISHED")
+
+def convert(args):
+    """
+    Converts a neural network file (.pt) into it's json representation.
+    """
+
+    """
+    model = load_net("cpu", args.net)
+
+    with open(args.json, "w") as f:
+        json.dump(model.state_dict(), f)
+    """
+
+    # TODO
+    raise NotImplementedError()
+
+def test(args):
+    # TODO
+    raise NotImplementedError()
 
 def main():
     """
-    TODO
+    Parses the arguments passed to the script. Calls either train() or test() 
+    with the parsed arguments.
     """
-    
-    device = "cuda" if tch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}")
 
-    model = Net().to(device)
-    print(model)
+    parser = argparse.ArgumentParser(description="Train or test the NNUE on batch files generated by the make-dataset script.")
+    subparsers = parser.add_subparsers()
+
+    # "train" subcommand.
+    train_subparser = subparsers.add_parser(
+        name="train",
+        description="Train the NNUE.",
+    )
+    train_subparser.add_argument(
+        "data",
+        metavar="DATA",
+        help="The directory where the training data is stored.",
+    )
+    train_subparser.add_argument(
+        "--num-epochs", "-e",
+        metavar="EPOCHS",
+        help="The number of epochs to train the network for, defaults to 10",
+        dest="epochs",
+        type=int,
+        default=10,
+    )
+    train_subparser.add_argument(
+        "--learning-rate", "-l",
+        metavar="RATE",
+        help="The learning rate to use for training, defaults to 1e-3",
+        dest="learning_rate",
+        type=float,
+        default=1e-3,
+    )
+    train_subparser.add_argument(
+        "--net", "-n",
+        metavar="NETFILE",
+        help="The network file that is loaded and used as starting point, randomly initializes the weights if this argument is missing",
+        dest="netfile",
+        default=None,
+    )
+    train_subparser.add_argument(
+        "--out", "-o",
+        metavar="OUTDIR",
+        help="The output directory to write nets to, defaults to the working directory",
+        dest="outdir",
+        default=".",
+    )
+    train_subparser.set_defaults(func=train)
+
+    # convert subcommand
+    convert_subparser = subparsers.add_parser(
+        name="convert",
+        description="Converts a NNUE file to the json format.",
+    )
+    convert_subparser.add_argument(
+        "net",
+        metavar="NETFILE",
+        help="The network file that is to be converted",
+    )
+    convert_subparser.add_argument(
+        "json",
+        metavar="JSONFILE",
+        help="The path of the output json file",
+    )
+    convert_subparser.set_defaults(func=convert)
+
+    # "test" subcommand.
+    test_subparser = subparsers.add_parser(
+        name="test",
+        description="Test the NNUE.",
+    )
+    test_subparser.set_defaults(func=test)
+
+    args = parser.parse_args()
+    args.func(args)
 
 if __name__ == "__main__":
     main()

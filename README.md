@@ -50,5 +50,6 @@ TODO
 
 # TODO
 
-+ Script to train a nnue.
-+ Actually train a nnue.
++ Better nets storage
++ Test subcommand
++ Net extraction to json
