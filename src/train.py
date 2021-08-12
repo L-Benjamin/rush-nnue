@@ -15,10 +15,6 @@ HEIGHT = 40960
 # Set this to 256 to get Stockfish's old HalfKP model. We want something leaner.
 SIZE = 128
 
-# The ReLU parameters of the model.
-RELU_MIN = 0
-RELU_MAX = 1
-
 # The loss function used.
 LOSS_FN = tch.nn.MSELoss
 
@@ -82,7 +78,7 @@ def parse_sample(line):
         sample_w.append(king_w + index + 64 + sq)
         sample_b.append(king_b + index + (sq ^ 56))
 
-    eval_w = int(centipawns) / 100
+    eval_w = int(centipawns)
     eval_b = -eval_w
 
     return sample_w, sample_b, eval_w, eval_b
@@ -106,7 +102,7 @@ def load_batch(file_name):
     ix2, iy2 = [], []
 
     # The label's vector.
-    y = tch.empty((len(lines) * 2, 1), dtype=tch.float)
+    y = tch.empty((len(lines) * 2, 1), dtype=tch.int16)
 
     # Parse each line of the batch file
     i = 0
@@ -130,8 +126,8 @@ def load_batch(file_name):
         i += 1
 
     # The inputs sparse tensors.
-    X1 = tch.sparse_coo_tensor([iy1, ix1], tch.ones(len(iy1)), size=(len(lines) * 2, HEIGHT), dtype=tch.float)
-    X2 = tch.sparse_coo_tensor([iy2, ix2], tch.ones(len(iy2)), size=(len(lines) * 2, HEIGHT), dtype=tch.float)
+    X1 = tch.sparse_coo_tensor([iy1, ix1], tch.ones(len(iy1)), size=(len(lines) * 2, HEIGHT), dtype=tch.int16)
+    X2 = tch.sparse_coo_tensor([iy2, ix2], tch.ones(len(iy2)), size=(len(lines) * 2, HEIGHT), dtype=tch.int16)
 
     return (X1, X2), y
 
@@ -153,6 +149,7 @@ def load_net(device, filename):
     Also chooses the best device to train the network on.
     Returns the device and the initialized model.
     """
+    
     model = Net().to(device)
 
     if filename is not None:
@@ -184,17 +181,17 @@ class Net(tch.nn.Module):
     def forward(self, x):
         x1, x2 = x
 
-        x1 = self.l1(x1)
-        x2 = self.l1(x2)
+        x1 = self.input_layer(x1)
+        x2 = self.input_layer(x2)
         x = tch.cat((x1, x2), axis=1)
-        x = tch.clamp(x, min=RELU_MIN, max=RELU_MAX)
+        x = tch.clamp(x, min=0, max=1)
         
         x = self.l2(x)
-        x = tch.clamp(x, min=RELU_MIN, max=RELU_MAX)
+        x = tch.clamp(x, min=0, max=1)
 
         x = self.l3(x)
-        x = tch.clamp(x, min=RELU_MIN, max=RELU_MAX)
-        
+        x = tch.clamp(x, min=0, max=1)
+
         return self.l4(x)
 
 # ===== train, test and main functions
@@ -205,15 +202,14 @@ def train(args):
     given dataset.
     """
 
-    verify_dir(args.outdir)
+    verify_dir(args.out)
     verify_dir(args.data)
 
     data_files = os.listdir(args.data)
 
     device = "cuda" if tch.cuda.is_available() else "cpu"
-    model = load_net(device, args.netfile)
-
-    print(f"Using device: {device}")
+    model = load_net(device, args.net)
+    print(f"Using device: {device}\n")
 
     optimizer = OPTIMIZER(model.parameters(), lr=args.learning_rate)
     loss_fn = LOSS_FN()
@@ -228,7 +224,7 @@ def train(args):
 
             yhat = model(X)
             loss = loss_fn(yhat, y)
-
+            
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -240,32 +236,61 @@ def train(args):
         avg_loss /= len(data_files)
 
         print(f"\naverage loss in epoch: {avg_loss:.3f}\n===== Ended epoch n°{i + 1} =====\n")
-        tch.save(model.state_dict(), os.path.join(args.outdir, f"nnue-{hex(random.randint(0, 0xffffffff))}.pt"))
+        tch.save(model.state_dict(), os.path.join(args.out, f"nnue-{hex(random.randint(0, 0xffffffff))}.pt"))
 
-def convert(args):
+def to_json(args):
     """
     Converts a neural network file (.pt) into it's json representation.
     """
 
+    names = ["w0", "b0", "w1", "b1", "w2", "b2", "w3", "b3"]
     params = load_net("cpu", args.net).parameters()
 
     json.dump(
-        {
-            "W0": next(params).data.tolist(),
-            "B0": next(params).data.tolist(),
-            "W1": next(params).data.tolist(),
-            "B1": next(params).data.tolist(),
-            "W2": next(params).data.tolist(),
-            "B2": next(params).data.tolist(),
-            "W3": next(params).data.tolist(),
-            "B3": next(params).data.tolist(),
-        }, 
+        {name: param.data.tolist() for name, param in zip(names, params)}, 
         open(args.json, "w"),
     )
 
+def cuda(args):
+    """
+    Prints a message corresponding to the availability of cuda.
+    """
+
+    if tch.cuda.is_available():
+        print("CUDA is available")
+    else:
+        print("CUDA is not available")
+
 def test(args):
-    # TODO
-    raise NotImplementedError()
+    """
+    Tests the network on the given batch files.
+    """
+
+    verify_dir(args.data)
+
+    data_files = os.listdir(args.data)
+
+    device = "cuda" if tch.cuda.is_available() else "cpu"
+    model = load_net(device, args.net)
+    print(f"Using device: {device}\n")
+
+    loss_fn = LOSS_FN()
+
+    avg_loss = 0
+
+    for data_file in data_files:
+        X, y = load_batch(os.path.join(args.data, data_file))
+
+        yhat = model(X)
+        loss = loss_fn(yhat, y)
+
+        loss = loss.item()
+        avg_loss += loss
+        print(f"loss: {loss:.3f}")
+
+    avg_loss /= len(data_files)
+
+    print(f"\naverage loss on batches: {avg_loss:.3f})
 
 def main():
     """
@@ -273,7 +298,7 @@ def main():
     with the parsed arguments.
     """
 
-    parser = argparse.ArgumentParser(description="Train or test the nnue on batch files generated by the make-dataset script.")
+    parser = argparse.ArgumentParser(description="Train or test the nnue on batch files generated by the make-dataset script")
     subparsers = parser.add_subparsers(
         title="subcommands",
         required=True,
@@ -282,12 +307,12 @@ def main():
     # "train" subcommand.
     train_subparser = subparsers.add_parser(
         name="train",
-        description="Train the nnue.",
+        description="Train the nnue",
     )
     train_subparser.add_argument(
         "data",
         metavar="DATA",
-        help="The directory where the training data is stored.",
+        help="The directory where the training data is stored",
     )
     train_subparser.add_argument(
         "--num-epochs", "-e",
@@ -307,43 +332,62 @@ def main():
     )
     train_subparser.add_argument(
         "--net", "-n",
-        metavar="NETFILE",
+        metavar="NET",
         help="The network file that is loaded and used as starting point, randomly initializes the weights if this argument is missing",
-        dest="netfile",
+        dest="net",
         default=None,
     )
     train_subparser.add_argument(
         "--out", "-o",
-        metavar="OUTDIR",
+        metavar="OUT",
         help="The output directory to write nets to, defaults to the working directory",
-        dest="outdir",
+        dest="out",
         default=".",
     )
     train_subparser.set_defaults(func=train)
 
-    # convert subcommand
-    convert_subparser = subparsers.add_parser(
-        name="convert",
-        description="Converts a nnue file (.pt) to the json format.",
-    )
-    convert_subparser.add_argument(
-        "net",
-        metavar="NETFILE",
-        help="The network file that is to be converted",
-    )
-    convert_subparser.add_argument(
-        "json",
-        metavar="JSONFILE",
-        help="The path of the output json file",
-    )
-    convert_subparser.set_defaults(func=convert)
-
     # "test" subcommand.
     test_subparser = subparsers.add_parser(
         name="test",
-        description="Test the NNUE.",
+        description="Test the NNUE",
+    )
+    train_subparser.add_argument(
+        "data",
+        metavar="DATA",
+        help="The directory where the test data is stored",
+    )
+    train_subparser.add_argument(
+        "net",
+        metavar="NET",
+        help="The network file that is loaded and used as starting point, randomly initializes the weights if this argument is missing",
+        dest="net",
+        default=None,
     )
     test_subparser.set_defaults(func=test)
+
+    # "json" subcommand
+    json_subparser = subparsers.add_parser(
+        name="json",
+        description="Converts a nnue file (.pt) to the json format",
+    )
+    json_subparser.add_argument(
+        "net",
+        metavar="NET",
+        help="The network file that is to be converted",
+    )
+    json_subparser.add_argument(
+        "json",
+        metavar="JSON",
+        help="The path of the output json file",
+    )
+    json_subparser.set_defaults(func=to_json)
+
+    # "cuda" subcommand
+    cuda_subparser = subparsers.add_parser(
+        name="cuda",
+        description="Test for availability of cuda drivers",
+    )
+    cuda_subparser.set_defaults(func=cuda)
 
     try:
         args = parser.parse_args()

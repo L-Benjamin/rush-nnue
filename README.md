@@ -50,6 +50,4 @@ TODO
 
 # TODO
 
-+ Better nets storage
-+ Test subcommand
-+ Net extraction to json
++ Batch parsing cache
