@@ -19,11 +19,11 @@ Ignores positions that are evaluated with a mate score.
 Skips games that are not evaluated.
 """
 
-# Number of parser threads.
-NUM_WORKERS = 6
-
 # The numbers of moves to skip from the start of the game.
 SKIP_NFIRST = 4
+
+# The maximum capacity in queues.
+MAX_QUEUE = 8
 
 class FastGameBuilder(GameBuilder):
     """
@@ -144,8 +144,8 @@ def main():
     stdin and send the games to the parser processes, in pure text.
     """
 
-    in_queue = Queue(maxsize=8)
-    res_queue = Queue(maxsize=8)
+    in_queue = Queue(maxsize=MAX_QUEUE)
+    res_queue = Queue(maxsize=MAX_QUEUE)
 
     Process(
         target=print_results,
