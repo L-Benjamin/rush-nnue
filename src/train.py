@@ -10,9 +10,6 @@ import torch as tch
 
 # ===== Parameters
 
-# Extensions of data files
-EXTENSION = ".txt.bz2"
-
 # 64 piece's squares x 64 king's square x 5 non-king piece types x 2 colors.
 HEIGHT = 40960
 
@@ -27,7 +24,7 @@ OPTIMIZER = tch.optim.Adagrad
 
 # ===== Data loading
 
-def parse_sample(line: str):
+def parse_sample(fen: str):
     """
     Parses a single line of the form "FEN;EVAL" where
     FEN is the FEN representation of a valid chess board, and
@@ -43,8 +40,6 @@ def parse_sample(line: str):
     WHITE_INDEXES = {"P": 0, "N": 128, "B": 256, "R": 384, "Q": 512}
     BLACK_INDEXES = {"p": 0, "n": 128, "b": 256, "r": 384, "q": 512}
     KINGS = {"K", "k"}
-
-    fen, centipawns = line.split(";")
 
     indexes_w = []
     indexes_b = []
@@ -82,10 +77,7 @@ def parse_sample(line: str):
         sample_w.append(king_w + index + 64 + sq)
         sample_b.append(king_b + index + (sq ^ 56))
 
-    eval_w = int(centipawns) / 100
-    eval_b = -eval_w
-
-    return sample_w, sample_b, eval_w, eval_b
+    return sample_w, sample_b
 
 def load_batch(file_name: str):
     """
@@ -103,7 +95,7 @@ def load_batch(file_name: str):
         with bz2.open(cache_file_name, "r") as f:
             return pickle.load(f)
 
-    with bz2.open(f"{file_name}{EXTENSION}", "rt") as f:
+    with bz2.open(f"{file_name}.txt.bz2", "rt") as f:
         lines = f.readlines()
 
     # The x and y indices of the places where we need
@@ -117,7 +109,11 @@ def load_batch(file_name: str):
     # Parse each line of the batch file
     i = 0
     for line in lines:
-        sample_w, sample_b, eval_w, eval_b = parse_sample(line)
+        fen, centipawns = line.split(";")
+
+        sample_w, sample_b = parse_sample(fen)
+        eval_w = float(centipawns) * 0.01
+        eval_b = -eval_w
 
         # From white's point of view.
         ix1.extend(sample_w)
@@ -200,7 +196,7 @@ def get_data_files(data_dir: str):
     """
     check_is_dir(data_dir)
 
-    files = [f[:-len(EXTENSION)] for f in os.listdir(data_dir) if f.endswith(EXTENSION)]
+    files = [f[:-8] for f in os.listdir(data_dir) if f.endswith(".txt.bz2")]
     if len(files) == 0:
         print("No data files found")
         exit(1)
@@ -240,9 +236,9 @@ class Net(tch.nn.Module):
 
         return self.l4(x)
 
-# ===== train, test and main functions
+# ===== commands and main functions
 
-def train(args):
+def cmd_train(args):
     """
     Trains the network for the specified number of epochs and on the
     given dataset.
@@ -281,9 +277,12 @@ def train(args):
         avg_loss /= len(data_files)
 
         print(f"\naverage loss in epoch: {avg_loss:.3f}\n===== Ended epoch n°{e + 1} =====\n")
-        tch.save(model.state_dict(), os.path.join(args.out, f"nnue-{hex(random.randint(0, 0xffffffff))}.pt"))
+        file_name = f"nnue-{random.randint(0, 0xffffffff):x}.pt"
+        tch.save(model.state_dict(), os.path.join(args.out, file_name))
 
-def to_json(args):
+    print(f"Last network file saved: {file_name}")
+
+def cmd_json(args):
     """
     Converts a neural network file (.pt) into it's json representation.
     """
@@ -296,7 +295,7 @@ def to_json(args):
         open(args.json, "w"),
     )
 
-def cuda(args):
+def cmd_cuda(args):
     """
     Prints a message corresponding to the availability of cuda.
     """
@@ -306,7 +305,7 @@ def cuda(args):
     else:
         print("CUDA is not available")
 
-def test(args):
+def cmd_test(args):
     """
     Tests the network on the given batch files.
     """
@@ -334,6 +333,25 @@ def test(args):
     avg_loss /= len(data_files)
 
     print(f"\naverage loss on {len(data_files)} batches: {avg_loss:.3f}")
+
+def cmd_eval(args):
+    """
+    Evaluates the network on a given fen string
+    """
+
+    model = load_net("cpu", args.net)
+
+    ix1, ix2 = parse_sample(args.fen)
+    iy1 = [0] * len(ix1)
+    iy2 = [0] * len(ix2)
+
+    x1 = tch.sparse_coo_tensor([iy1, ix1], tch.ones(len(ix1)), size=(1, HEIGHT))
+    x2 = tch.sparse_coo_tensor([iy2, ix2], tch.ones(len(ix2)), size=(1, HEIGHT))
+
+    y_w = model((x1, x2)).item()
+    y_b = model((x2, x1)).item()
+
+    print(f"The model gave an evaluation of:\n>>> {y_w:.3f} from white's point of view.\n>>> {y_b:.3f} from black's point of view.")
 
 def main():
     """
@@ -387,7 +405,7 @@ def main():
         dest="out",
         default=".",
     )
-    train_subparser.set_defaults(func=train)
+    train_subparser.set_defaults(func=cmd_train)
 
     # "test" subcommand.
     test_subparser = subparsers.add_parser(
@@ -404,7 +422,7 @@ def main():
         metavar="NET",
         help="The network file that is loaded and used as starting point, randomly initializes the weights if this argument is missing",
     )
-    test_subparser.set_defaults(func=test)
+    test_subparser.set_defaults(func=cmd_test)
 
     # "json" subcommand
     json_subparser = subparsers.add_parser(
@@ -421,14 +439,31 @@ def main():
         metavar="JSON",
         help="The path of the output json file",
     )
-    json_subparser.set_defaults(func=to_json)
+    json_subparser.set_defaults(func=cmd_json)
 
     # "cuda" subcommand
     cuda_subparser = subparsers.add_parser(
         name="cuda",
         description="Test for availability of cuda drivers",
     )
-    cuda_subparser.set_defaults(func=cuda)
+    cuda_subparser.set_defaults(func=cmd_cuda)
+
+    # "eval" subcommand
+    eval_subparser = subparsers.add_parser(
+        name="eval",
+        description="Evaluates a network on a given fen string."
+    )
+    eval_subparser.add_argument(
+        "net",
+        metavar="NET",
+        help="The network file used for evaluation",
+    )
+    eval_subparser.add_argument(
+        "fen",
+        metavar="FEN",
+        help="The fen string to be evaluated",
+    )
+    eval_subparser.set_defaults(func=cmd_eval)
 
     try:
         args = parser.parse_args()
