@@ -2,12 +2,16 @@ import argparse
 import bz2
 import json
 import os
+import pickle
 import random
 import time
 
 import torch as tch
 
 # ===== Parameters
+
+# Extensions of data files
+EXTENSION = ".txt.bz2"
 
 # 64 piece's squares x 64 king's square x 5 non-king piece types x 2 colors.
 HEIGHT = 40960
@@ -21,9 +25,9 @@ LOSS_FN = tch.nn.MSELoss
 # The optimizer used for gradient descent.
 OPTIMIZER = tch.optim.Adagrad
 
-# ===== Parsing
+# ===== Data loading
 
-def parse_sample(line):
+def parse_sample(line: str):
     """
     Parses a single line of the form "FEN;EVAL" where
     FEN is the FEN representation of a valid chess board, and
@@ -78,23 +82,29 @@ def parse_sample(line):
         sample_w.append(king_w + index + 64 + sq)
         sample_b.append(king_b + index + (sq ^ 56))
 
-    eval_w = int(centipawns)
+    eval_w = int(centipawns) / 100
     eval_b = -eval_w
 
     return sample_w, sample_b, eval_w, eval_b
 
-def load_batch(file_name):
+def load_batch(file_name: str):
     """
     Loads a batch file from it's name, decompresses it and parses it. 
+    Caches the resulting tensors for later retrieval, and uses the cached
+    results in priority.
 
     Returns three tensors, two containing the inputs of the net, for both
     colors, and one containing the labels.
     """
 
-    with bz2.open(file_name, "rt") as f:
+    cache_file_name = f"{file_name}.bin.bz2"
+
+    if os.path.exists(cache_file_name):
+        with bz2.open(cache_file_name, "r") as f:
+            return pickle.load(f)
+
+    with bz2.open(f"{file_name}{EXTENSION}", "rt") as f:
         lines = f.readlines()
-    
-    random.shuffle(lines)
 
     # The x and y indices of the places where we need
     # a "1" in the input matrixes.
@@ -102,7 +112,7 @@ def load_batch(file_name):
     ix2, iy2 = [], []
 
     # The label's vector.
-    y = tch.empty((len(lines) * 2, 1), dtype=tch.int16)
+    y = tch.empty((len(lines) * 2, 1))
 
     # Parse each line of the batch file
     i = 0
@@ -126,30 +136,53 @@ def load_batch(file_name):
         i += 1
 
     # The inputs sparse tensors.
-    X1 = tch.sparse_coo_tensor([iy1, ix1], tch.ones(len(iy1)), size=(len(lines) * 2, HEIGHT), dtype=tch.int16)
-    X2 = tch.sparse_coo_tensor([iy2, ix2], tch.ones(len(iy2)), size=(len(lines) * 2, HEIGHT), dtype=tch.int16)
+    X1 = tch.sparse_coo_tensor([iy1, ix1], tch.ones(len(iy1)), size=(len(lines) * 2, HEIGHT))
+    X2 = tch.sparse_coo_tensor([iy2, ix2], tch.ones(len(iy2)), size=(len(lines) * 2, HEIGHT))
 
-    return (X1, X2), y
+    res = [(X1, X2), y]
+
+    with bz2.open(cache_file_name, "w") as f:
+        pickle.dump(res, f)
+
+    return res
+
+def shuffle(batch):
+    """
+    Suffles the given batch.
+    """
+
+    (X1, X2), y = batch
+    n = len(y)
+
+    if shuffle.perm is None or len(shuffle.perm) != n: 
+        # A sparse permutation matrix of size n times n.
+        shuffle.perm = tch.sparse_coo_tensor([list(range(n)), tch.randperm(n)], tch.ones(n), size=(n, n))
+
+    X1 = tch.sparse.mm(shuffle.perm, X1)
+    X2 = tch.sparse.mm(shuffle.perm, X2)
+    y = shuffle.perm @ y
+
+    return [(X1, X2), y]
+
+shuffle.perm = None
 
 # ===== Files
 
-def verify_dir(dirname):
+def check_is_dir(dirname: str):
     """
     Exits the program with an error code if the argument is not 
     a path to a directory.
     """
-
     if not os.path.isdir(dirname):
         print(f"{dirname} is not a directory.")
         exit(1)
 
-def load_net(device, filename):
+def load_net(device: str, filename: str):
     """
     Loads or initializes a network from a given file name.
     Also chooses the best device to train the network on.
     Returns the device and the initialized model.
     """
-    
     model = Net().to(device)
 
     if filename is not None:
@@ -160,6 +193,19 @@ def load_net(device, filename):
             exit(1)
 
     return model
+
+def get_data_files(data_dir: str):
+    """
+    Returns the list of the names of the data files.
+    """
+    check_is_dir(data_dir)
+
+    files = [f[:-len(EXTENSION)] for f in os.listdir(data_dir) if f.endswith(EXTENSION)]
+    if len(files) == 0:
+        print("No data files found")
+        exit(1)
+
+    return files
 
 # ===== Network model
 
@@ -181,8 +227,8 @@ class Net(tch.nn.Module):
     def forward(self, x):
         x1, x2 = x
 
-        x1 = self.input_layer(x1)
-        x2 = self.input_layer(x2)
+        x1 = self.l1(x1)
+        x2 = self.l1(x2)
         x = tch.cat((x1, x2), axis=1)
         x = tch.clamp(x, min=0, max=1)
         
@@ -202,10 +248,8 @@ def train(args):
     given dataset.
     """
 
-    verify_dir(args.out)
-    verify_dir(args.data)
-
-    data_files = os.listdir(args.data)
+    check_is_dir(args.out)
+    data_files = get_data_files(args.data)
 
     device = "cuda" if tch.cuda.is_available() else "cpu"
     model = load_net(device, args.net)
@@ -214,13 +258,14 @@ def train(args):
     optimizer = OPTIMIZER(model.parameters(), lr=args.learning_rate)
     loss_fn = LOSS_FN()
 
-    for i in range(args.epochs):
-        print(f"==== Started epoch n°{i + 1} ====")
+    for e in range(args.epochs):
+        print(f"==== Started epoch n°{e + 1} ====")
 
         avg_loss = 0
 
         for data_file in data_files:
-            X, y = load_batch(os.path.join(args.data, data_file))
+            batch = load_batch(os.path.join(args.data, data_file))
+            X, y = shuffle(batch)
 
             yhat = model(X)
             loss = loss_fn(yhat, y)
@@ -235,7 +280,7 @@ def train(args):
 
         avg_loss /= len(data_files)
 
-        print(f"\naverage loss in epoch: {avg_loss:.3f}\n===== Ended epoch n°{i + 1} =====\n")
+        print(f"\naverage loss in epoch: {avg_loss:.3f}\n===== Ended epoch n°{e + 1} =====\n")
         tch.save(model.state_dict(), os.path.join(args.out, f"nnue-{hex(random.randint(0, 0xffffffff))}.pt"))
 
 def to_json(args):
@@ -266,9 +311,7 @@ def test(args):
     Tests the network on the given batch files.
     """
 
-    verify_dir(args.data)
-
-    data_files = os.listdir(args.data)
+    data_files = get_data_files(args.data)
 
     device = "cuda" if tch.cuda.is_available() else "cpu"
     model = load_net(device, args.net)
@@ -290,7 +333,7 @@ def test(args):
 
     avg_loss /= len(data_files)
 
-    print(f"\naverage loss on batches: {avg_loss:.3f})
+    print(f"\naverage loss on {len(data_files)} batches: {avg_loss:.3f}")
 
 def main():
     """
@@ -351,17 +394,15 @@ def main():
         name="test",
         description="Test the NNUE",
     )
-    train_subparser.add_argument(
+    test_subparser.add_argument(
         "data",
         metavar="DATA",
         help="The directory where the test data is stored",
     )
-    train_subparser.add_argument(
+    test_subparser.add_argument(
         "net",
         metavar="NET",
         help="The network file that is loaded and used as starting point, randomly initializes the weights if this argument is missing",
-        dest="net",
-        default=None,
     )
     test_subparser.set_defaults(func=test)
 
