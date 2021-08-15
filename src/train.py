@@ -277,7 +277,7 @@ def cmd_train(args):
         avg_loss /= len(data_files)
 
         print(f"\naverage loss in epoch: {avg_loss:.3f}\n===== Ended epoch n°{e + 1} =====\n")
-        file_name = f"nnue-{random.randint(0, 0xffffffff):x}.pt"
+        file_name = f"nnue-{random.randint(0, 0xffffffffff):010x}.pt"
         tch.save(model.state_dict(), os.path.join(args.out, file_name))
 
     print(f"Last network file saved: {file_name}")
@@ -294,6 +294,11 @@ def cmd_json(args):
         {name: param.data.tolist() for name, param in zip(names, params)}, 
         open(args.json, "w"),
     )
+
+def cmd_rush(args):
+    """
+    Converts a neural network file (.pt) into it's rust representation, ready .
+    """
 
 def cmd_cuda(args):
     """
