@@ -256,7 +256,7 @@ def cmd_train(args):
 
             loss = loss.item()
             avg_loss += loss
-            print(f"loss: {loss:.3f}")
+            print(f"({data_file}) loss: {loss:.3f}")
 
         avg_loss /= len(data_files)
 
@@ -319,7 +319,7 @@ def cmd_test(args):
 
         loss = loss.item()
         avg_loss += loss
-        print(f"loss: {loss:.3f}")
+        print(f"({data_file}) loss: {loss:.3f}")
 
     avg_loss /= len(data_files)
 
