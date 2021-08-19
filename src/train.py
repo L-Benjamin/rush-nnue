@@ -143,7 +143,7 @@ def load_batch(file_name: str):
     return res
 
 def into(device: str, batch):
-    X1, X2, y = batch
+    (X1, X2), y = batch
     return [(X1.to(device), X2.to(device)), y.to(device)]
 
 # ===== Files
