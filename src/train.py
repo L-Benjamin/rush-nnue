@@ -142,25 +142,9 @@ def load_batch(file_name: str):
 
     return res
 
-def shuffle(batch):
-    """
-    Suffles the given batch.
-    """
-
-    (X1, X2), y = batch
-    n = len(y)
-
-    if shuffle.perm is None or len(shuffle.perm) != n: 
-        # A sparse permutation matrix of size n times n.
-        shuffle.perm = tch.sparse_coo_tensor([list(range(n)), tch.randperm(n)], tch.ones(n), size=(n, n))
-
-    X1 = tch.sparse.mm(shuffle.perm, X1)
-    X2 = tch.sparse.mm(shuffle.perm, X2)
-    y = shuffle.perm @ y
-
-    return [(X1, X2), y]
-
-shuffle.perm = None
+def into(device: str, batch):
+    X1, X2, y = batch
+    return [(X1.to(device), X2.to(device)), y.to(device)]
 
 # ===== Files
 
@@ -261,7 +245,7 @@ def cmd_train(args):
 
         for data_file in data_files:
             batch = load_batch(os.path.join(args.data, data_file))
-            X, y = shuffle(batch)
+            X, y = into(device, batch)
 
             yhat = model(X)
             loss = loss_fn(yhat, y)
@@ -299,6 +283,7 @@ def cmd_rush(args):
     """
     Converts a neural network file (.pt) into it's rust representation, ready .
     """
+    pass # TODO
 
 def cmd_cuda(args):
     """
@@ -326,7 +311,8 @@ def cmd_test(args):
     avg_loss = 0
 
     for data_file in data_files:
-        X, y = load_batch(os.path.join(args.data, data_file))
+        batch = load_batch(os.path.join(args.data, data_file))
+        X, y = into(device, batch)
 
         yhat = model(X)
         loss = loss_fn(yhat, y)
