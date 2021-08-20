@@ -22,130 +22,6 @@ LOSS_FN = tch.nn.MSELoss
 # The optimizer used for gradient descent.
 OPTIMIZER = tch.optim.Adagrad
 
-# ===== Data loading
-
-def parse_sample(fen: str):
-    """
-    Parses a single line of the form "FEN;EVAL" where
-    FEN is the FEN representation of a valid chess board, and
-    EVAL is a signed integer, representing the evaluation of
-    the board by an engine, in centipawns.
-
-    Returns two lists and the evaluation of the position. The lists
-    correspond to the index of the pieces for white and black.
-
-    See: https://pytorch.org/docs/stable/generated/torch.sparse_coo_tensor.html#torch.sparse_coo_tensor.
-    """
-    
-    WHITE_INDEXES = {"P": 0, "N": 128, "B": 256, "R": 384, "Q": 512}
-    BLACK_INDEXES = {"p": 0, "n": 128, "b": 256, "r": 384, "q": 512}
-    KINGS = {"K", "k"}
-
-    indexes_w = []
-    indexes_b = []
-
-    sq = 56
-    for rank in fen.split("/"):
-        for char in rank:
-            if (index := WHITE_INDEXES.get(char)) is not None:
-                # If it's a white piece.
-                indexes_w.append((index, sq))                
-                sq += 1
-            elif (index := BLACK_INDEXES.get(char)) is not None:
-                # If it's a black piece.
-                indexes_b.append((index, sq))
-                sq += 1
-            elif char in KINGS:
-                # It's a king.
-                if char == "K":
-                    king_w = 640 * sq
-                else:
-                    king_b = 640 * (sq ^ 56)
-                sq += 1
-            else:
-                # It's a number.
-                sq += ord(char) - ord("0")
-        sq -= 16
-
-    sample_w = []
-    sample_b = []
-
-    for index, sq in indexes_w:
-        sample_w.append(king_w + index + sq)
-        sample_b.append(king_b + index + 64 + (sq ^ 56))
-    for index, sq in indexes_b:
-        sample_w.append(king_w + index + 64 + sq)
-        sample_b.append(king_b + index + (sq ^ 56))
-
-    return sample_w, sample_b
-
-def load_batch(file_name: str):
-    """
-    Loads a batch file from it's name, decompresses it and parses it. 
-    Caches the resulting tensors for later retrieval, and uses the cached
-    results in priority.
-
-    Returns three tensors, two containing the inputs of the net, for both
-    colors, and one containing the labels.
-    """
-
-    cache_file_name = f"{file_name}.bin.bz2"
-
-    if os.path.exists(cache_file_name):
-        with bz2.open(cache_file_name, "r") as f:
-            return pickle.load(f)
-
-    with bz2.open(f"{file_name}.txt.bz2", "rt") as f:
-        lines = f.readlines()
-
-    # The x and y indices of the places where we need
-    # a "1" in the input matrixes.
-    ix1, iy1 = [], []
-    ix2, iy2 = [], []
-
-    # The label's vector.
-    y = tch.empty((len(lines) * 2, 1))
-
-    # Parse each line of the batch file
-    i = 0
-    for line in lines:
-        fen, centipawns = line.split(";")
-
-        sample_w, sample_b = parse_sample(fen)
-        eval_w = float(centipawns) * 0.01
-        eval_b = -eval_w
-
-        # From white's point of view.
-        ix1.extend(sample_w)
-        iy1.extend([i] * len(sample_w))
-        ix2.extend(sample_b)
-        iy2.extend([i] * len(sample_b))
-        y[i] = eval_w
-        i += 1
-
-        # From black's point of view.
-        ix1.extend(sample_b)
-        iy1.extend([i] * len(sample_b))
-        ix2.extend(sample_w)
-        iy2.extend([i] * len(sample_w))
-        y[i] = eval_b
-        i += 1
-
-    # The inputs sparse tensors.
-    X1 = tch.sparse_coo_tensor([iy1, ix1], tch.ones(len(iy1)), size=(len(lines) * 2, HEIGHT))
-    X2 = tch.sparse_coo_tensor([iy2, ix2], tch.ones(len(iy2)), size=(len(lines) * 2, HEIGHT))
-
-    res = [(X1, X2), y]
-
-    with bz2.open(cache_file_name, "w") as f:
-        pickle.dump(res, f)
-
-    return res
-
-def into(device: str, batch):
-    (X1, X2), y = batch
-    return [(X1.to(device), X2.to(device)), y.to(device)]
-
 # ===== Files
 
 def check_is_dir(dirname: str):
@@ -180,12 +56,24 @@ def get_data_files(data_dir: str):
     """
     check_is_dir(data_dir)
 
-    files = [f[:-8] for f in os.listdir(data_dir) if f.endswith(".txt.bz2")]
+    files = [f for f in os.listdir(data_dir)]
     if len(files) == 0:
         print("No data files found")
         exit(1)
 
     return files
+
+def load_batch(device: str, file_name: str):
+    """
+    Loads a batch file from it's name and decompresses i.
+
+    Returns three tensors, two containing the inputs of the net, for both
+    colors, and one containing the labels.
+    """
+    if os.path.exists(file_name):
+        with bz2.open(file_name, "r") as f:
+            (X1, X2), y = pickle.load(f)
+            return [(X1.to(device), X2.to(device)), y.to(device)]  
 
 # ===== Network model
 
@@ -244,8 +132,7 @@ def cmd_train(args):
         avg_loss = 0
 
         for data_file in data_files:
-            batch = load_batch(os.path.join(args.data, data_file))
-            X, y = into(device, batch)
+            X, y = load_batch(device, os.path.join(args.data, data_file))
 
             yhat = model(X)
             loss = loss_fn(yhat, y)
@@ -311,8 +198,7 @@ def cmd_test(args):
     avg_loss = 0
 
     for data_file in data_files:
-        batch = load_batch(os.path.join(args.data, data_file))
-        X, y = into(device, batch)
+        X, y = load_batch(device, os.path.join(args.data, data_file))
 
         yhat = model(X)
         loss = loss_fn(yhat, y)
