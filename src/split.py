@@ -167,7 +167,7 @@ def main():
     parser.add_argument(
         "test",
         help="The output directory containig the batches used for testing",
-        metavar="TRAIN",
+        metavar="TEST",
     )
     parser.add_argument(
         "--proportion", "-p",
