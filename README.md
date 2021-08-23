@@ -72,6 +72,16 @@ Your nets are stored in pytorch files by default (`.pt`). My scripts allow expor
 
 I provide an executable, written in rust, that converts a json net into a format usable by the Rush chess engine. Inference code can be found in it's [repository](https://github.com/L-Benjamin/rush).
 
+With `cargo` and `rustc` installed, go to `src/rush-converter` and do:
+```shell
+cargo build --release
+```
+
+At the root, do:
+```shell
+./src/rush-convert/target/release/rush-convert -h
+```
+
 ## Resources
 
 - [Chess Programming Wiki - NNUE](https://www.chessprogramming.org/NNUE)
