@@ -1,5 +1,9 @@
 Pipfile.lock
 
+# Rust files.
+Cargo.lock
+target
+
 # The directory containing our training data.
 data/*
 !data/.keep
