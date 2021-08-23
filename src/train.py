@@ -129,6 +129,7 @@ def cmd_train(args):
     for e in range(args.epochs):
         print(f"==== Started epoch n°{e + 1} ====")
 
+        random.shuffle(data_files)
         avg_loss = 0
 
         for data_file in data_files:
@@ -165,12 +166,6 @@ def cmd_json(args):
         {name: param.data.tolist() for name, param in zip(names, params)}, 
         open(args.json, "w"),
     )
-
-def cmd_rush(args):
-    """
-    Converts a neural network file (.pt) into it's rust representation, ready .
-    """
-    pass # TODO
 
 def cmd_cuda(args):
     """
